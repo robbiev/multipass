@@ -130,10 +130,46 @@ func main() {
 
 	fmt.Println(bytes.Equal(b, v))
 
+	decryptFile(b)
+
 	fmt.Println("done")
 }
 
+func decryptFile(key []byte) {
+	type Item struct {
+		Title     string
+		Encrypted string
+	}
+	file, err := ioutil.ReadFile("/Users/robbie/Dropbox/1password/1Password.agilekeychain/data/default/2116ED1FF6AFBF230FE93AFC7DA1DBEA.1password")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	var item Item
+	err = json.Unmarshal(file, &item)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("%+v\n", item)
+
+	data := item.Encrypted
+	decoded, er := base64.StdEncoding.DecodeString(data[0 : len(data)-1])
+
+	if er != nil {
+		fmt.Println(er)
+		os.Exit(1)
+	}
+
+	decrypted := decryptData(key, decoded)
+	fmt.Println(item.Title)
+	fmt.Println(string(decrypted))
+}
+
 func decryptData(key, data []byte) []byte {
+	// assuming salt
 	salt := data[8:16]
 	data = data[16:]
 	nkey := md5.Sum(append(key, salt...))
@@ -159,5 +195,4 @@ func Decryptr(k, iv, in []byte) ([]byte, bool) {
 		return nil, false
 	}
 	return out, true
-
 }
