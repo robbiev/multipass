@@ -103,8 +103,8 @@ func main() {
 
   saltMarker := []byte("Salted__")
   salted := (bytes.Equal([]byte(encryptionKey[0:len(saltMarker)]), saltMarker))
-  fmt.Println(encryptionKey[0:30])
-  fmt.Println(len(encryptionKey))
+  //fmt.Println(encryptionKey[0:30])
+  //fmt.Println(len(encryptionKey))
 
   var salt []byte
   if salted {
@@ -115,34 +115,59 @@ func main() {
     encryptionKey = encryptionKey[skip:]
   }
 
-  fmt.Println(encryptionKey[0:30])
-  fmt.Println(len(encryptionKey))
-  fmt.Println(len(salt))
+  //fmt.Println(encryptionKey[0:30])
+  //fmt.Println(len(encryptionKey))
+  //fmt.Println(len(salt))
 
+  // first 16 bytes are the key, last 16 bytes are the IV
   bytez := pbkdf2.Key(pass, salt, keys.List[1].Iterations, aes.BlockSize * 2, sha1.New)
-  fmt.Println(len(bytez))
-  fmt.Println(bytez)
+  key := bytez[:16]
+  iv := bytez[16:]
 
-  //b, e := Decrypt(bytez[:16], bytez[16:], encryptionKey)
-  b, e := Decrypt(bytez, encryptionKey)
+  b, e := Decryptr(key, iv, encryptionKey)
+  //b, e := Decrypt(bytez, encryptionKey)
   if !e {
     fmt.Println("decrypt error")
     os.Exit(1)
   }
 
   fmt.Println(len(b))
+  fmt.Println(b)
 
   validationData := keys.List[1].Validation
   validation, er := base64.StdEncoding.DecodeString(validationData[0:len(validationData)-1])
-  fmt.Println(validation[:8])
+  //fmt.Println(validation[:8])
   v := decryptData(b, validation)
   fmt.Println(len(v))
+  fmt.Println(v)
 
   fmt.Println(bytes.Equal(b, v))
 
   fmt.Println("done")
 }
 
+func Decrypt2(k, in []byte) ([]byte, bool) {
+  if len(in) == 0 || len(in)%aes.BlockSize != 0 {
+    fmt.Println("meh")
+    return nil, false
+  }
+
+  c, err := aes.NewCipher(k)
+  if err != nil {
+    fmt.Println("meh2")
+    return nil, false
+  }
+
+  cbc := cipher.NewCBCDecrypter(c, in[:aes.BlockSize])
+  cbc.CryptBlocks(in[aes.BlockSize:], in[aes.BlockSize:])
+  out := in[aes.BlockSize:]
+  if out == nil {
+    fmt.Println("meh3")
+    return nil, false
+  }
+  return out, true
+
+}
 func Decrypt(k, in []byte) ([]byte, bool) {
   if len(in) == 0 || len(in)%aes.BlockSize != 0 {
     fmt.Println("meh")
@@ -167,34 +192,35 @@ func Decrypt(k, in []byte) ([]byte, bool) {
 }
 
 func decryptData(key, data []byte) []byte {
-  salt := data[8:8]
+  salt := data[8:16]
   data = data[16:]
   nkey := md5.Sum(append(key, salt...))
   iv := md5.Sum(append(append(nkey[:], key...), salt...))
 
-  result, _ := Decrypt(append(nkey[:], iv[:]...), data)
+  //result, _ := Decrypt(append(nkey[:], iv[:]...), data)
+  result, _ := Decryptr(nkey[:], iv[:], data)
   return result
 }
 
 // https://leanpub.com/gocrypto/read#leanpub-auto-encrypting-and-decrypting-data-with-aes-cbc
 // https://github.com/kisom/gocrypto/blob/master/chapter2/aescbc/aescbc.go
 // Decrypt decrypts the message and removes any padding.
-// func Decrypt(k, iv, in []byte) ([]byte, bool) {
-// 	c, err := aes.NewCipher(k)
-// 	if err != nil {
-//     fmt.Println("meh2")
-// 		return nil, false
-// 	}
+func Decryptr(k, iv, in []byte) ([]byte, bool) {
+	c, err := aes.NewCipher(k)
+	if err != nil {
+    fmt.Println("meh2")
+		return nil, false
+	}
 
-// 	cbc := cipher.NewCBCDecrypter(c, iv)
-// 	cbc.CryptBlocks(in, in)
-//   fmt.Println("decrypted")
-//   fmt.Println(len(in))
-// 	out := Unpad(in)
-// 	if out == nil {
-//     fmt.Println("meh3")
-// 		return nil, false
-// 	}
-// 	return out, true
+	cbc := cipher.NewCBCDecrypter(c, iv)
+	cbc.CryptBlocks(in, in)
+  fmt.Println("decrypted")
+  fmt.Println(len(in))
+	out := Unpad(in)
+	if out == nil {
+    fmt.Println("meh3")
+		return nil, false
+	}
+	return out, true
 
-// }
+}
