@@ -10,6 +10,7 @@ import (
 	"github.com/howeyc/gopass"
   "code.google.com/p/go.crypto/pbkdf2"
   "crypto/sha1"
+  "crypto/md5"
   "crypto/aes"
   "crypto/cipher"
 )
@@ -134,6 +135,10 @@ func main() {
   validationData := keys.List[1].Validation
   validation, er := base64.StdEncoding.DecodeString(validationData[0:len(validationData)-1])
   fmt.Println(validation[:8])
+  v := decryptData(b, validation)
+  fmt.Println(len(v))
+
+  fmt.Println(bytes.Equal(b, v))
 
   fmt.Println("done")
 }
@@ -159,6 +164,16 @@ func Decrypt(k, in []byte) ([]byte, bool) {
   }
   return out, true
 
+}
+
+func decryptData(key, data []byte) []byte {
+  salt := data[8:8]
+  data = data[16:]
+  nkey := md5.Sum(append(key, salt...))
+  iv := md5.Sum(append(append(nkey[:], key...), salt...))
+
+  result, _ := Decrypt(append(nkey[:], iv[:]...), data)
+  return result
 }
 
 // https://leanpub.com/gocrypto/read#leanpub-auto-encrypting-and-decrypting-data-with-aes-cbc
