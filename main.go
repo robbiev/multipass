@@ -52,7 +52,7 @@ func main() {
 		}
 	}
 
-	DecryptFile(keyMap["SL5"])
+	DecryptFile(keyMap)
 
 	fmt.Println("done")
 }
@@ -126,7 +126,7 @@ func DecryptKey(pass []byte, passKey PassKey, keyMap map[string][]byte) error {
 	return nil
 }
 
-func DecryptFile(key []byte) {
+func DecryptFile(keyMap map[string][]byte) {
 	file, err := ioutil.ReadFile("/Users/robbie/Dropbox/1password/1Password.agilekeychain/data/default/2116ED1FF6AFBF230FE93AFC7DA1DBEA.1password")
 	if err != nil {
 		fmt.Println(err)
@@ -134,8 +134,9 @@ func DecryptFile(key []byte) {
 	}
 
 	type Item struct {
-		Title     string
-		Encrypted string
+		Title         string
+		Encrypted     string
+		SecurityLevel string
 	}
 
 	var item Item
@@ -154,7 +155,7 @@ func DecryptFile(key []byte) {
 		os.Exit(1)
 	}
 
-	decrypted := DecryptData(key, decoded)
+	decrypted := DecryptData(keyMap[item.SecurityLevel], decoded)
 	fmt.Println(item.Title)
 	fmt.Println(string(decrypted))
 }
