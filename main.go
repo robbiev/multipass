@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"code.google.com/p/go.crypto/pbkdf2"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/md5"
@@ -10,9 +9,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/howeyc/gopass"
 	"io/ioutil"
 	"os"
+
+	"code.google.com/p/go.crypto/pbkdf2"
+	"github.com/howeyc/gopass"
 )
 
 func clear(b []byte) {
@@ -62,6 +63,12 @@ func main() {
 	pass := gopass.GetPasswd()
 	defer clear(pass)
 
+	file, err := ioutil.ReadFile("./encryptionKeys.js")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
 	type PassKey struct {
 		Data       string
 		Identifier string
@@ -72,12 +79,6 @@ func main() {
 	type Keys struct {
 		List []PassKey
 	}
-	file, err := ioutil.ReadFile("./encryptionKeys.js")
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-
 	var keys Keys
 	err = json.Unmarshal(file, &keys)
 	if err != nil {
@@ -87,10 +88,8 @@ func main() {
 
 	fmt.Printf("%+v\n", keys)
 
-	data := keys.List[1].Data
-
 	// seems to be a null terminated string, cut off the last character
-	encryptionKey, er := base64.StdEncoding.DecodeString(data[0 : len(data)-1])
+	encryptionKey, er := Base64Decode(keys.List[1].Data)
 
 	if er != nil {
 		fmt.Println(er)
@@ -110,10 +109,11 @@ func main() {
 
 	// first 16 bytes are the key, last 16 bytes are the IV
 	bytez := pbkdf2.Key(pass, salt, keys.List[1].Iterations, aes.BlockSize*2, sha1.New)
-	key := bytez[:16]
-	iv := bytez[16:]
+	key := bytez[:16] // aes key size must be 16, 24 or 32
+	iv := bytez[16:] // IV byte length is equal to aes.BlockSize
 
-	b, e := Decryptr(key, iv, encryptionKey)
+	// 16 byte key, so AES-128
+	b, e := DecryptAes(key, iv, encryptionKey)
 	if !e {
 		fmt.Println("decrypt error")
 		os.Exit(1)
@@ -124,26 +124,27 @@ func main() {
 
 	validationData := keys.List[1].Validation
 	validation, er := base64.StdEncoding.DecodeString(validationData[0 : len(validationData)-1])
-	v := decryptData(b, validation)
+	v := DecryptData(b, validation)
 	fmt.Println(len(v))
 	fmt.Println(v)
 
 	fmt.Println(bytes.Equal(b, v))
 
-	decryptFile(b)
+	DecryptFile(b)
 
 	fmt.Println("done")
 }
 
-func decryptFile(key []byte) {
-	type Item struct {
-		Title     string
-		Encrypted string
-	}
+func DecryptFile(key []byte) {
 	file, err := ioutil.ReadFile("/Users/robbie/Dropbox/1password/1Password.agilekeychain/data/default/2116ED1FF6AFBF230FE93AFC7DA1DBEA.1password")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
+	}
+
+	type Item struct {
+		Title     string
+		Encrypted string
 	}
 
 	var item Item
@@ -155,44 +156,71 @@ func decryptFile(key []byte) {
 
 	fmt.Printf("%+v\n", item)
 
-	data := item.Encrypted
-	decoded, er := base64.StdEncoding.DecodeString(data[0 : len(data)-1])
+	decoded, er := Base64Decode(item.Encrypted)
 
 	if er != nil {
 		fmt.Println(er)
 		os.Exit(1)
 	}
 
-	decrypted := decryptData(key, decoded)
+	decrypted := DecryptData(key, decoded)
 	fmt.Println(item.Title)
 	fmt.Println(string(decrypted))
 }
 
-func decryptData(key, data []byte) []byte {
+func Base64Decode(data string) ([]byte, error) {
+  actualData := data
+  if data[len(data)-1] == 0 {
+    actualData = data[:len(data)-1]
+  }
+
+	decoded, err := base64.StdEncoding.DecodeString(actualData)
+
+	if err != nil {
+    return nil, err
+	}
+
+  return decoded, nil
+}
+
+func DecryptData(key, data []byte) []byte {
 	// assuming salt
 	salt := data[8:16]
 	data = data[16:]
+
+	// poor man's MD5 based PBKDF1
 	nkey := md5.Sum(append(key, salt...))
 	iv := md5.Sum(append(append(nkey[:], key...), salt...))
 
-	result, _ := Decryptr(nkey[:], iv[:], data)
+	// 16 byte key, so AES-128
+	result, _ := DecryptAes(nkey[:], iv[:], data)
+
 	return result
 }
 
 // https://leanpub.com/gocrypto/read#leanpub-auto-encrypting-and-decrypting-data-with-aes-cbc
 // https://github.com/kisom/gocrypto/blob/master/chapter2/aescbc/aescbc.go
 // Decrypt decrypts the message and removes any padding.
-func Decryptr(k, iv, in []byte) ([]byte, bool) {
-	c, err := aes.NewCipher(k)
-	if err != nil {
+func DecryptAes(k, iv, in []byte) ([]byte, bool) {
+	if len(in) == 0 || len(in)%aes.BlockSize != 0 {
 		return nil, false
 	}
 
+	c, err := aes.NewCipher(k)
+	if err != nil {
+		// potentially wrong key size, must be one of 16/24/32
+		// to select AES-128, AES-192 or AES-256 respectively
+		return nil, false
+	}
+
+	// iv must be == aes.BlockSize
 	cbc := cipher.NewCBCDecrypter(c, iv)
 	cbc.CryptBlocks(in, in)
+
 	out := Unpad(in)
 	if out == nil {
 		return nil, false
 	}
+
 	return out, true
 }
