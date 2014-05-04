@@ -8,6 +8,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -40,11 +41,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("%+v\n", keys)
+	//fmt.Printf("%+v\n", keys)
 
-	b := DecryptKey(pass, keys.List[1])
+	keyMap := make(map[string][]byte)
+	for _, passKey := range keys.List {
+		err = DecryptKey(pass, passKey, keyMap)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+	}
 
-	DecryptFile(b)
+	DecryptFile(keyMap["SL5"])
 
 	fmt.Println("done")
 }
@@ -77,7 +85,7 @@ func IsSalted(encryptedData []byte) bool {
 	return bytes.Equal(encryptedData[:saltLen], saltMarker)
 }
 
-func DecryptKey(pass []byte, passKey PassKey) []byte {
+func DecryptKey(pass []byte, passKey PassKey, keyMap map[string][]byte) error {
 	encryptedEncryptionKey, er := Base64Decode(passKey.Data)
 
 	if er != nil {
@@ -109,9 +117,13 @@ func DecryptKey(pass []byte, passKey PassKey) []byte {
 	validation, er := base64.StdEncoding.DecodeString(validationData[0 : len(validationData)-1])
 	v := DecryptData(b, validation)
 
-	fmt.Println(bytes.Equal(b, v))
+	if !bytes.Equal(b, v) {
+		return errors.New("encryption key validation failed")
+	}
 
-	return b
+	keyMap[passKey.Level] = b
+
+	return nil
 }
 
 func DecryptFile(key []byte) {
