@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path"
 
 	"code.google.com/p/go.crypto/pbkdf2"
 	"github.com/howeyc/gopass"
@@ -28,7 +29,10 @@ func main() {
 	pass := gopass.GetPasswd()
 	defer clear(pass)
 
-	file, err := ioutil.ReadFile("./encryptionKeys.js")
+	home := os.Getenv("HOME")
+	onePasswordDir := path.Join(home, "/Dropbox/1password/1Password.agilekeychain/data/default")
+
+	file, err := ioutil.ReadFile(path.Join(onePasswordDir, "encryptionKeys.js"))
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -52,7 +56,25 @@ func main() {
 		}
 	}
 
-	DecryptFile(keyMap)
+	dirListing, e := ioutil.ReadDir(onePasswordDir)
+	if e != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	for _, f := range dirListing {
+		if !f.IsDir() && path.Ext(f.Name()) == ".1password" {
+			p := path.Join(onePasswordDir, f.Name())
+			file, err := ioutil.ReadFile(p)
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+			fmt.Println("====")
+			fmt.Println(p)
+			DecryptFile(file, keyMap)
+			fmt.Println("====")
+		}
+	}
 
 	fmt.Println("done")
 }
@@ -126,13 +148,7 @@ func DecryptKey(pass []byte, passKey PassKey, keyMap map[string][]byte) error {
 	return nil
 }
 
-func DecryptFile(keyMap map[string][]byte) {
-	file, err := ioutil.ReadFile("/Users/robbie/Dropbox/1password/1Password.agilekeychain/data/default/2116ED1FF6AFBF230FE93AFC7DA1DBEA.1password")
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-
+func DecryptFile(file []byte, keyMap map[string][]byte) {
 	type Item struct {
 		Title         string
 		Encrypted     string
@@ -140,13 +156,13 @@ func DecryptFile(keyMap map[string][]byte) {
 	}
 
 	var item Item
-	err = json.Unmarshal(file, &item)
+	err := json.Unmarshal(file, &item)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("%+v\n", item)
+	//fmt.Printf("%+v\n", item)
 
 	decoded, er := Base64Decode(item.Encrypted)
 
@@ -155,7 +171,12 @@ func DecryptFile(keyMap map[string][]byte) {
 		os.Exit(1)
 	}
 
-	decrypted := DecryptData(keyMap[item.SecurityLevel], decoded)
+	securityLevel := item.SecurityLevel
+	if len(securityLevel) == 0 {
+		securityLevel = "SL5"
+	}
+
+	decrypted := DecryptData(keyMap[securityLevel], decoded)
 	fmt.Println(item.Title)
 	fmt.Println(string(decrypted))
 }
@@ -176,6 +197,7 @@ func Base64Decode(data string) ([]byte, error) {
 }
 
 func DecryptData(key, data []byte) []byte {
+	fmt.Println(IsSalted(data))
 	// assuming salt
 	salt := data[saltLen : saltLen+saltDataLen]
 	data = data[saltLen+saltDataLen:]
@@ -185,7 +207,11 @@ func DecryptData(key, data []byte) []byte {
 	iv := md5.Sum(append(append(nkey[:], key...), salt...))
 
 	// 16 byte key, so AES-128
-	result, _ := DecryptAes(nkey[:], iv[:], data)
+	result, success := DecryptAes(nkey[:], iv[:], data)
+
+	if !success {
+		fmt.Println("error")
+	}
 
 	return result
 }
