@@ -72,7 +72,6 @@ func main() {
 			fmt.Println("====")
 			fmt.Println(p)
 			DecryptFile(file, keyMap)
-			fmt.Println("====")
 		}
 	}
 
@@ -130,14 +129,14 @@ func DecryptKey(pass []byte, passKey PassKey, keyMap map[string][]byte) error {
 
 	// 16 byte key, so AES-128
 	b, e := DecryptAes(key, iv, encryptedEncryptionKey)
-	if !e {
+	if e != nil {
 		fmt.Println("decrypt error")
 		os.Exit(1)
 	}
 
 	validationData := passKey.Validation
 	validation, er := base64.StdEncoding.DecodeString(validationData[0 : len(validationData)-1])
-	v := DecryptData(b, validation)
+	v, _ := DecryptData(b, validation)
 
 	if !bytes.Equal(b, v) {
 		return errors.New("encryption key validation failed")
@@ -176,9 +175,11 @@ func DecryptFile(file []byte, keyMap map[string][]byte) {
 		securityLevel = "SL5"
 	}
 
-	decrypted := DecryptData(keyMap[securityLevel], decoded)
 	fmt.Println(item.Title)
-	fmt.Println(string(decrypted))
+	decrypted, e := DecryptData(keyMap[securityLevel], decoded)
+	if e == nil {
+		fmt.Println(string(decrypted))
+	}
 }
 
 func Base64Decode(data string) ([]byte, error) {
@@ -196,8 +197,11 @@ func Base64Decode(data string) ([]byte, error) {
 	return decoded, nil
 }
 
-func DecryptData(key, data []byte) []byte {
-	fmt.Println(IsSalted(data))
+func DecryptData(key, data []byte) ([]byte, error) {
+	if !IsSalted(data) {
+		return nil, errors.New("unsalted data not supported")
+	}
+
 	// assuming salt
 	salt := data[saltLen : saltLen+saltDataLen]
 	data = data[saltLen+saltDataLen:]
@@ -207,28 +211,29 @@ func DecryptData(key, data []byte) []byte {
 	iv := md5.Sum(append(append(nkey[:], key...), salt...))
 
 	// 16 byte key, so AES-128
-	result, success := DecryptAes(nkey[:], iv[:], data)
+	result, err := DecryptAes(nkey[:], iv[:], data)
 
-	if !success {
-		fmt.Println("error")
+	if err != nil {
+		fmt.Println("decryption error")
+		return nil, err
 	}
 
-	return result
+	return result, nil
 }
 
 // https://leanpub.com/gocrypto/read#leanpub-auto-encrypting-and-decrypting-data-with-aes-cbc
 // https://github.com/kisom/gocrypto/blob/master/chapter2/aescbc/aescbc.go
 // Decrypt decrypts the message and removes any padding.
-func DecryptAes(k, iv, in []byte) ([]byte, bool) {
+func DecryptAes(k, iv, in []byte) ([]byte, error) {
 	if len(in) == 0 || len(in)%aes.BlockSize != 0 {
-		return nil, false
+		return nil, errors.New("input block size not a multiple of aes.BlockSize")
 	}
 
 	c, err := aes.NewCipher(k)
 	if err != nil {
 		// potentially wrong key size, must be one of 16/24/32
 		// to select AES-128, AES-192 or AES-256 respectively
-		return nil, false
+		return nil, err
 	}
 
 	// iv must be == aes.BlockSize
@@ -237,10 +242,10 @@ func DecryptAes(k, iv, in []byte) ([]byte, bool) {
 
 	out := Unpad(in)
 	if out == nil {
-		return nil, false
+		return nil, errors.New("failed to remove padding")
 	}
 
-	return out, true
+	return out, nil
 }
 
 // Pad applies the PKCS #7 padding scheme on the buffer.
