@@ -22,42 +22,6 @@ func clear(b []byte) {
 	}
 }
 
-// Pad applies the PKCS #7 padding scheme on the buffer.
-func Pad(in []byte) []byte {
-	padding := 16 - (len(in) % 16)
-	if padding == 0 {
-		padding = 16
-	}
-	for i := 0; i < padding; i++ {
-		in = append(in, byte(padding))
-	}
-	return in
-}
-
-// Unpad strips the PKCS #7 padding on a buffer. If the padding is
-// invalid, nil is returned.
-func Unpad(in []byte) []byte {
-	if len(in) == 0 {
-		return nil
-	}
-
-	padding := in[len(in)-1]
-	fmt.Printf("len %s\n", len(in))
-	fmt.Printf("padding %s\n", padding)
-	if int(padding) > len(in) || padding > aes.BlockSize {
-		return nil
-	} else if padding == 0 {
-		return nil
-	}
-
-	for i := len(in) - 1; i > len(in)-int(padding)-1; i-- {
-		if in[i] != padding {
-			return nil
-		}
-	}
-	return in[:len(in)-int(padding)]
-}
-
 func main() {
 	fmt.Printf("Password: ")
 	pass := gopass.GetPasswd()
@@ -69,16 +33,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	type PassKey struct {
-		Data       string
-		Identifier string
-		Iterations int
-		Level      string
-		Validation string
-	}
-	type Keys struct {
-		List []PassKey
-	}
 	var keys Keys
 	err = json.Unmarshal(file, &keys)
 	if err != nil {
@@ -88,51 +42,76 @@ func main() {
 
 	fmt.Printf("%+v\n", keys)
 
-	// seems to be a null terminated string, cut off the last character
-	encryptionKey, er := Base64Decode(keys.List[1].Data)
+	b := DecryptKey(pass, keys.List[1])
+
+	DecryptFile(b)
+
+	fmt.Println("done")
+}
+
+type PassKey struct {
+	// Base64 encoded encryption key, AES-128 encrypted using a PBKDF2 key
+	// derived from the user's password
+	Data       string
+	Identifier string
+	Iterations int
+	Level      string
+	// Base64 encoded copy of the encryption key, AES-128 encrypted by itself
+	Validation string
+}
+
+type Keys struct {
+	List []PassKey
+}
+
+var saltMarker []byte = []byte("Salted__")
+var saltLen int = len(saltMarker)
+
+const saltDataLen = 8
+
+func IsSalted(encryptedData []byte) bool {
+	if len(encryptedData) < saltLen {
+		return false
+	}
+
+	return bytes.Equal(encryptedData[:saltLen], saltMarker)
+}
+
+func DecryptKey(pass []byte, passKey PassKey) []byte {
+	encryptedEncryptionKey, er := Base64Decode(passKey.Data)
 
 	if er != nil {
 		fmt.Println(er)
 		os.Exit(1)
 	}
 
-	saltMarker := []byte("Salted__")
-	salted := (bytes.Equal([]byte(encryptionKey[0:len(saltMarker)]), saltMarker))
-
 	var salt []byte
-	if salted {
+	if IsSalted(encryptedEncryptionKey) {
 		// salt marker (8 bytes) | salt (8 bytes) | data
-		skip := len(saltMarker) + 8
-		salt = []byte(encryptionKey[len(saltMarker):skip])
-		encryptionKey = encryptionKey[skip:]
+		skip := saltLen + saltDataLen
+		salt = []byte(encryptedEncryptionKey[saltLen:skip])
+		encryptedEncryptionKey = encryptedEncryptionKey[skip:]
 	}
 
 	// first 16 bytes are the key, last 16 bytes are the IV
-	bytez := pbkdf2.Key(pass, salt, keys.List[1].Iterations, aes.BlockSize*2, sha1.New)
+	bytez := pbkdf2.Key(pass, salt, passKey.Iterations, aes.BlockSize*2, sha1.New)
 	key := bytez[:16] // aes key size must be 16, 24 or 32
-	iv := bytez[16:] // IV byte length is equal to aes.BlockSize
+	iv := bytez[16:]  // IV byte length is equal to aes.BlockSize
 
 	// 16 byte key, so AES-128
-	b, e := DecryptAes(key, iv, encryptionKey)
+	b, e := DecryptAes(key, iv, encryptedEncryptionKey)
 	if !e {
 		fmt.Println("decrypt error")
 		os.Exit(1)
 	}
 
-	fmt.Println(len(b))
-	fmt.Println(b)
-
-	validationData := keys.List[1].Validation
+	validationData := passKey.Validation
 	validation, er := base64.StdEncoding.DecodeString(validationData[0 : len(validationData)-1])
 	v := DecryptData(b, validation)
-	fmt.Println(len(v))
-	fmt.Println(v)
 
 	fmt.Println(bytes.Equal(b, v))
 
-	DecryptFile(b)
-
-	fmt.Println("done")
+	return b
 }
 
 func DecryptFile(key []byte) {
@@ -169,24 +148,24 @@ func DecryptFile(key []byte) {
 }
 
 func Base64Decode(data string) ([]byte, error) {
-  actualData := data
-  if data[len(data)-1] == 0 {
-    actualData = data[:len(data)-1]
-  }
+	actualData := data
+	if data[len(data)-1] == 0 {
+		actualData = data[:len(data)-1]
+	}
 
 	decoded, err := base64.StdEncoding.DecodeString(actualData)
 
 	if err != nil {
-    return nil, err
+		return nil, err
 	}
 
-  return decoded, nil
+	return decoded, nil
 }
 
 func DecryptData(key, data []byte) []byte {
 	// assuming salt
-	salt := data[8:16]
-	data = data[16:]
+	salt := data[saltLen : saltLen+saltDataLen]
+	data = data[saltLen+saltDataLen:]
 
 	// poor man's MD5 based PBKDF1
 	nkey := md5.Sum(append(key, salt...))
@@ -223,4 +202,38 @@ func DecryptAes(k, iv, in []byte) ([]byte, bool) {
 	}
 
 	return out, true
+}
+
+// Pad applies the PKCS #7 padding scheme on the buffer.
+func Pad(in []byte) []byte {
+	padding := 16 - (len(in) % 16)
+	if padding == 0 {
+		padding = 16
+	}
+	for i := 0; i < padding; i++ {
+		in = append(in, byte(padding))
+	}
+	return in
+}
+
+// Unpad strips the PKCS #7 padding on a buffer. If the padding is
+// invalid, nil is returned.
+func Unpad(in []byte) []byte {
+	if len(in) == 0 {
+		return nil
+	}
+
+	padding := in[len(in)-1]
+	if int(padding) > len(in) || padding > aes.BlockSize {
+		return nil
+	} else if padding == 0 {
+		return nil
+	}
+
+	for i := len(in) - 1; i > len(in)-int(padding)-1; i-- {
+		if in[i] != padding {
+			return nil
+		}
+	}
+	return in[:len(in)-int(padding)]
 }
