@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io/ioutil"
-	"os"
 	"path"
 
 	"code.google.com/p/go.crypto/pbkdf2"
