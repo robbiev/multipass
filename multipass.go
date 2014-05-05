@@ -181,6 +181,7 @@ func DecryptFile(file []byte, keyMap map[string][]byte) {
 		Title         string
 		Encrypted     string
 		SecurityLevel string
+		TypeName      string
 	}
 
 	var item Item
