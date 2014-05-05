@@ -9,7 +9,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"path"
@@ -139,8 +138,7 @@ func DecryptKey(pass []byte, passKey PassKey, keyMap map[string][]byte) error {
 	encryptedEncryptionKey, er := Base64Decode(passKey.Data)
 
 	if er != nil {
-		fmt.Println(er)
-		os.Exit(1)
+		return er
 	}
 
 	var salt []byte
@@ -159,8 +157,7 @@ func DecryptKey(pass []byte, passKey PassKey, keyMap map[string][]byte) error {
 	// 16 byte key, so AES-128
 	b, e := DecryptAes(key, iv, encryptedEncryptionKey)
 	if e != nil {
-		fmt.Println("decrypt error")
-		os.Exit(1)
+		return e
 	}
 
 	validationData := passKey.Validation
@@ -263,7 +260,6 @@ func DecryptData(key, data []byte) ([]byte, error) {
 	result, err := DecryptAes(nkey[:], iv[:], data)
 
 	if err != nil {
-		fmt.Println("decryption error")
 		return nil, err
 	}
 
