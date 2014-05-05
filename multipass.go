@@ -178,10 +178,23 @@ func DecryptKey(pass []byte, passKey PassKey, keyMap map[string][]byte) error {
 
 func DecryptFile(file []byte, keyMap map[string][]byte) {
 	type Item struct {
-		Title         string
-		Encrypted     string
+		Title     string
+		Encrypted string
+
+		// determine which encryption key to use; values are SL3 or SL5 in my keychain
+		// currently we assume SL5 if this field is empty
+		// TODO add openContents.securityLevel field, it seems to be an altenative
 		SecurityLevel string
-		TypeName      string
+
+		// Known values (there are probably others):
+		//   passwords.Password
+		//   webforms.WebForm
+		//   system.folder.SavedSearch
+		//   securenotes.SecureNote
+		//   wallet.financial.CreditCard
+		//   wallet.computer.License
+		//   identities.Identity
+		TypeName string
 	}
 
 	var item Item
