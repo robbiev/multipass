@@ -29,6 +29,8 @@ func TestKeyChain(*testing.T) {
 		} else {
 			fmt.Println(item.Title)
 			fmt.Println(item.TypeName)
+			fmt.Println(item.LocationKey)
+			fmt.Println(item.Location)
 			//fmt.Println(item.Payload)
 		}
 		return nil

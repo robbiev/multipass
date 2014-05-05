@@ -173,15 +173,21 @@ func DecryptKey(pass []byte, passKey PassKey, keyMap map[string][]byte) error {
 }
 
 type Item struct {
-	Title    string
-	Payload  string
-	TypeName string
+	Title       string
+	Payload     string
+	TypeName    string
+	LocationKey string
+	Location    string
 }
 
 func DecryptFile(file []byte, keyMap map[string][]byte) (Item, error) {
 	type EncryptedItem struct {
 		Title     string
 		Encrypted string
+		// base URL, e.g. hipchat.com
+		LocationKey string
+		// detailed URL e.g. https://hipchat.com/login
+		Location string
 
 		// determine which encryption key to use; values are SL3 or SL5 in my keychain
 		// currently we assume SL5 if this field is empty
@@ -224,7 +230,14 @@ func DecryptFile(file []byte, keyMap map[string][]byte) (Item, error) {
 		return Item{}, e
 	}
 
-	return Item{Title: item.Title, Payload: string(decrypted), TypeName: item.TypeName}, nil
+	retVal := Item{
+		Title:       item.Title,
+		Payload:     string(decrypted),
+		TypeName:    item.TypeName,
+		Location:    item.Location,
+		LocationKey: item.LocationKey,
+	}
+	return retVal, nil
 }
 
 func Base64Decode(data string) ([]byte, error) {
