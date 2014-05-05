@@ -23,7 +23,14 @@ func TestKeyChain(*testing.T) {
 	keyChain.ForEachItem(func(p string, f []byte) error {
 		fmt.Println("====")
 		fmt.Println(p)
-		DecryptFile(f, keyChain.Keys())
+		item, err := DecryptFile(f, keyChain.Keys())
+		if err != nil {
+			fmt.Println(err)
+		} else {
+			fmt.Println(item.Title)
+			fmt.Println(item.TypeName)
+			//fmt.Println(item.Payload)
+		}
 		return nil
 	})
 

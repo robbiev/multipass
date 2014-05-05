@@ -176,8 +176,14 @@ func DecryptKey(pass []byte, passKey PassKey, keyMap map[string][]byte) error {
 	return nil
 }
 
-func DecryptFile(file []byte, keyMap map[string][]byte) {
-	type Item struct {
+type Item struct {
+	Title    string
+	Payload  string
+	TypeName string
+}
+
+func DecryptFile(file []byte, keyMap map[string][]byte) (Item, error) {
+	type EncryptedItem struct {
 		Title     string
 		Encrypted string
 
@@ -197,11 +203,10 @@ func DecryptFile(file []byte, keyMap map[string][]byte) {
 		TypeName string
 	}
 
-	var item Item
+	var item EncryptedItem
 	err := json.Unmarshal(file, &item)
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return Item{}, err
 	}
 
 	//fmt.Printf("%+v\n", item)
@@ -209,8 +214,7 @@ func DecryptFile(file []byte, keyMap map[string][]byte) {
 	decoded, er := Base64Decode(item.Encrypted)
 
 	if er != nil {
-		fmt.Println(er)
-		os.Exit(1)
+		return Item{}, er
 	}
 
 	securityLevel := item.SecurityLevel
@@ -218,11 +222,13 @@ func DecryptFile(file []byte, keyMap map[string][]byte) {
 		securityLevel = "SL5"
 	}
 
-	fmt.Println(item.Title)
 	decrypted, e := DecryptData(keyMap[securityLevel], decoded)
-	if e == nil {
-		fmt.Println(string(decrypted))
+
+	if e != nil {
+		return Item{}, e
 	}
+
+	return Item{Title: item.Title, Payload: string(decrypted), TypeName: item.TypeName}, nil
 }
 
 func Base64Decode(data string) ([]byte, error) {
