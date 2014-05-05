@@ -1,4 +1,4 @@
-package main
+package multipass
 
 import (
 	"bytes"
@@ -15,7 +15,6 @@ import (
 	"path"
 
 	"code.google.com/p/go.crypto/pbkdf2"
-	"github.com/howeyc/gopass"
 )
 
 func clear(b []byte) {
@@ -24,58 +23,88 @@ func clear(b []byte) {
 	}
 }
 
-func main() {
-	fmt.Printf("Password: ")
-	pass := gopass.GetPasswd()
-	defer clear(pass)
+type KeyChain interface {
+	Open(password []byte) error
+	IsOpen() bool
+	Close()
+	ForEachItem(callback ItemCallback) error
+	Keys() map[string][]byte
+}
 
-	home := os.Getenv("HOME")
-	onePasswordDir := path.Join(home, "/Dropbox/1password/1Password.agilekeychain/data/default")
+type AgileKeyChain struct {
+	dir  string
+	keys map[string][]byte
+}
 
-	file, err := ioutil.ReadFile(path.Join(onePasswordDir, "encryptionKeys.js"))
+func NewAgileKeyChain(dir string) KeyChain {
+	// TODO check it is a 1Password dir
+	return &AgileKeyChain{dir: dir}
+}
+
+func (chain *AgileKeyChain) Close() {
+	chain.keys = nil
+}
+
+func (chain *AgileKeyChain) IsOpen() bool {
+	return chain.keys != nil
+}
+
+func (chain *AgileKeyChain) Keys() map[string][]byte {
+	return chain.keys
+}
+
+func (chain *AgileKeyChain) ForEachItem(callback ItemCallback) error {
+	return ForEachItem(chain.dir, callback)
+}
+
+func (chain *AgileKeyChain) Open(password []byte) error {
+	file, err := ioutil.ReadFile(path.Join(chain.dir, "encryptionKeys.js"))
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return err
 	}
 
 	var keys Keys
 	err = json.Unmarshal(file, &keys)
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return err
 	}
 
 	//fmt.Printf("%+v\n", keys)
 
 	keyMap := make(map[string][]byte)
 	for _, passKey := range keys.List {
-		err = DecryptKey(pass, passKey, keyMap)
+		err = DecryptKey(password, passKey, keyMap)
 		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+			return err
 		}
 	}
 
+	chain.keys = keyMap
+
+	return nil
+}
+
+type ItemCallback func(path string, file []byte) error
+
+func ForEachItem(onePasswordDir string, itemCallback ItemCallback) error {
 	dirListing, e := ioutil.ReadDir(onePasswordDir)
 	if e != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return e
 	}
 	for _, f := range dirListing {
 		if !f.IsDir() && path.Ext(f.Name()) == ".1password" {
 			p := path.Join(onePasswordDir, f.Name())
 			file, err := ioutil.ReadFile(p)
 			if err != nil {
-				fmt.Println(err)
-				os.Exit(1)
+				return err
 			}
-			fmt.Println("====")
-			fmt.Println(p)
-			DecryptFile(file, keyMap)
+			err = itemCallback(p, file)
+			if err != nil {
+				return err
+			}
 		}
 	}
-
-	fmt.Println("done")
+	return nil
 }
 
 type PassKey struct {
