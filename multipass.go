@@ -235,6 +235,9 @@ func DecryptFile(file []byte, keyMap map[string][]byte) (Item, error) {
 }
 
 func base64Decode(data string) ([]byte, error) {
+	if len(data) == 0 {
+		return []byte(""), nil
+	}
 	actualData := data
 	if data[len(data)-1] == 0 {
 		actualData = data[:len(data)-1]
